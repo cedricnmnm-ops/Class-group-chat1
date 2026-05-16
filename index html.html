@@ -1,0 +1,158 @@
+!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Chat</title>
+    <!-- PeerJS Library for P2P Messaging -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; height: 100vh; background: #e5ddd5; }
+
+/* Login Screen */
+        #login-screen { position: fixed; inset: 0; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        #login-screen input { padding: 12px; margin: 8px; width: 250px; border: 1px solid #ccc; border-radius: 8px; }
+        #login-screen button { padding: 12px 24px; background: #075e54; color: white; border: none; border-radius: 8px; cursor: pointer; }
+
+        /* Main UI */
+        #app-ui { display: none; width: 100%; }
+        .sidebar { width: 280px; background: #075e54; color: white; display: flex; flex-direction: column; }
+        .sidebar h3 { padding: 20px; margin: 0; background: #054d44; }
+        .user-item { padding: 15px; border-bottom: 1px solid #064e46; cursor: pointer; display: flex; align-items: center; }
+        .status-dot { height: 10px; width: 10px; background: #25d366; border-radius: 50%; margin-right: 10px; }
+
+        .divider { width: 2px; background: #ddd; }
+
+        .chat-area { flex-grow: 1; display: flex; flex-direction: column; background: #efe7dd; }
+        #chat-window { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+
+/* Messaging Bar */
+        .controls { padding: 15px; background: #f0f0f0; display: flex; align-items: center; gap: 10px; }
+input#msg-input { flex-grow: 1; padding: 12px; border-radius: 20px; border: 1px solid #ddd; }
+        .admin-tools { padding: 10px; background: #fff; border-bottom: 1px solid #ddd; display: none; justify-content: space-around; }
+
+        .msg { margin-bottom: 10px; padding: 8px 15px; border-radius: 18px; max-width: 70%; }
+        .msg.admin { background: #dcf8c6; align-self: flex-end; }
+        .msg.student { background: white; align-self: flex-start; }
+
+/* Times Up Overlay */
+        #lock-overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: white; justify-content: center; align-items: center; font-size: 2rem; z-index: 50; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen">
+<h2>Class Messenger</h2>
+        <input type="text" id="username" placeholder="Full Name">
+        <input type="password" id="accessCode" placeholder="Class Password">
+        <button onclick="handleLogin()">Join Application</button>
+    </div>
+
+    <div id="lock-overlay">⚠️ TIMES UP - Chat Disabled</div>
+
+    <div id="app-ui">
+        <div class="sidebar" id="user-list">
+            <h3>Members</h3>
+            <!-- Names will appear here -->
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="chat-area">
+            <div class="admin-tools" id="admin-bar">
+                <button onclick="toggleLock(true)" style="background:#ff4b2b; color:white;">Times Up</button>
+                <button onclick="toggleLock(false)" style="background:#4ecdc4; color:white;">Times Down</button>
+            </div>
+
+            <div id="chat-window"></div>
+
+            <div class="controls">
+                <button>🎤</button>
+                <button onclick="document.getElementById('file-input').click()">🖼️</button>
+                <input type="file" id="file-input" style="display:none">
+                <input type="text" id="msg-input" placeholder="Write a message...">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+        let peer;
+let connections = [];
+let myName = "";
+let myRole = "";
+
+function handleLogin() {
+    myName = document.getElementById("username").value;
+            const code = document.getElementById("accessCode").value;
+
+    if (code === "2314") {
+        myRole = "admin";
+        document.getElementById("admin-bar").style.display = "flex";
+    } else if (code === "1234") {
+        myRole = "student";
+    } else {
+        alert("Incorrect Password");
+        return;
+    }
+
+    document.getElementById("login-screen").style.display = "none";
+    document.getElementById("app-ui").style.display = "flex";
+
+    initPeer();
+}
+
+function initPeer() {
+    // In a real scenario, the Admin ID would be shared
+    peer = new Peer(myRole === 'admin' ? 'class-admin-room-001' : null);
+
+    peer.on('open', (id) => {
+    if (myRole === 'student') {
+                    const conn = peer.connect('class-admin-room-001');
+        setupConnection(conn);
+    }
+            });
+
+    peer.on('connection', (conn) => {
+            setupConnection(conn);
+            });
+}
+
+function setupConnection(conn) {
+    connections.push(conn);
+    conn.on('data', (data) => {
+    if (data.type === "lock") {
+        document.getElementById("lock-overlay").style.display = data.value ? "flex" : "none";
+    } else {
+        displayMessage(data.user, data.text);
+    }
+            });
+}
+
+function toggleLock(isLocked) {
+    connections.forEach(c => c.send({ type: "lock", value: isLocked }));
+    document.getElementById("lock-overlay").style.display = isLocked ? "flex" : "none";
+}
+
+function sendMessage() {
+            const input = document.getElementById("msg-input");
+            const text = input.value;
+    if (!text) return;
+
+            const data = { user: myName, text: text, type: "msg" };
+    connections.forEach(c => c.send(data));
+    displayMessage("Me", text);
+    input.value = "";
+}
+
+function displayMessage(user, text) {
+            const win = document.getElementById("chat-window");
+            const div = document.createElement("div");
+    div.className = `msg ${user === "Me" ? 'admin' : 'student'}`;
+    div.innerHTML = `<strong>${user}:</strong> ${text}`;
+    win.appendChild(div);
+    win.scrollTop = win.scrollHeight;
+}
+    </script>
+</body>
+</html>
